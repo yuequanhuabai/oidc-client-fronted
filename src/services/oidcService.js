@@ -1,6 +1,6 @@
 const OIDC_SERVER_URL = 'http://localhost:8080';
 const OIDC_CLIENT_ID = 'my-app';
-const REDIRECT_URI = 'http://localhost:5173/callback';
+const REDIRECT_URI = 'http://localhost:8081/callback'; // 后端接收授权码
 const SCOPE = 'openid profile email';
 
 // 生成随机 state
@@ -24,20 +24,38 @@ export const getAuthorizationUrl = () => {
   return `${OIDC_SERVER_URL}/oidc/authorize?${params.toString()}`;
 };
 
-// 从 URL 中获取授权码
-export const getAuthorizationCode = () => {
-  const params = new URLSearchParams(window.location.search);
-  const code = params.get('code');
-  const state = params.get('state');
+// 从 URL hash fragment 中获取 token（后端已经完成授权码交换）
+export const getTokenFromHash = () => {
+  const hash = window.location.hash.substring(1); // 去掉 #
+  const params = new URLSearchParams(hash);
 
-  const savedState = sessionStorage.getItem('oidc_state');
+  const accessToken = params.get('access_token');
+  const idToken = params.get('id_token');
+  const username = params.get('username');
 
-  if (state !== savedState) {
-    console.error('State mismatch! Possible CSRF attack');
-    return null;
+  if (accessToken) {
+    // 保存 tokens
+    localStorage.setItem('access_token', accessToken);
+    if (idToken) {
+      localStorage.setItem('id_token', idToken);
+    }
+    if (username) {
+      localStorage.setItem('username', username);
+    }
+
+    sessionStorage.removeItem('oidc_state');
+
+    // 清除 URL 中的 hash
+    window.history.replaceState(null, '', window.location.pathname);
+
+    return {
+      access_token: accessToken,
+      id_token: idToken,
+      username: username
+    };
   }
 
-  return code;
+  return null;
 };
 
 // 交换授权码获取 Token

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getAuthorizationCode, exchangeCodeForToken } from '../services/oidcService';
+import { getTokenFromHash } from '../services/oidcService';
 
 export default function Callback() {
   const [loading, setLoading] = useState(true);
@@ -10,21 +10,14 @@ export default function Callback() {
   useEffect(() => {
     const handleCallback = async () => {
       try {
-        const code = getAuthorizationCode();
-
-        if (!code) {
-          setError('未获取到授权码，请重新登录');
-          setLoading(false);
-          return;
-        }
-
-        const tokenData = await exchangeCodeForToken(code);
+        // 从 hash 中读取 token（后端已完成授权码交换）
+        const tokenData = getTokenFromHash();
 
         if (tokenData && tokenData.access_token) {
           // 登录成功，重定向到仪表板
           navigate('/dashboard');
         } else {
-          setError('Token 交换失败，请重新登录');
+          setError('未获取到 Token，请重新登录');
           setLoading(false);
         }
       } catch (err) {
