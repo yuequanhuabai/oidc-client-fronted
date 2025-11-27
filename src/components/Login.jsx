@@ -41,6 +41,7 @@ const styles = {
     maxWidth: '400px',
     width: '100%'
   },
+
   title: {
     fontSize: '28px',
     marginBottom: '16px',
