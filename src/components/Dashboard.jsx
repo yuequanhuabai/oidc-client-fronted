@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { logout, getAccessToken } from '../services/oidcService';
+import { logout, getUsername, isAuthenticated } from '../services/oidcService';
 import { fetchUserProfile, fetchProtectedData } from '../services/api';
 
 export default function Dashboard() {
@@ -13,16 +13,17 @@ export default function Dashboard() {
   useEffect(() => {
     const loadData = async () => {
       try {
-        const token = getAccessToken();
-        if (!token) {
+        // 检查是否已认证（通过 Cookie）
+        if (!isAuthenticated()) {
           navigate('/');
           return;
         }
 
-        const storedUsername = localStorage.getItem('username');
-        setUsername(storedUsername || 'User');
+        // 从 Cookie 中获取用户名
+        const cookieUsername = getUsername();
+        setUsername(cookieUsername || 'User');
 
-        // 加载用户资料和数据
+        // 加载用户资料和数据（Cookie 会自动携带）
         const [profileData, protectedData] = await Promise.all([
           fetchUserProfile().catch(() => null),
           fetchProtectedData().catch(() => null)
@@ -40,9 +41,9 @@ export default function Dashboard() {
     loadData();
   }, [navigate]);
 
-  const handleLogout = () => {
-    logout();
-    navigate('/');
+  const handleLogout = async () => {
+    await logout();
+    // logout() 函数会自动重定向到登录页
   };
 
   if (loading) {

@@ -35,38 +35,37 @@ export const getAuthorizationUrl = () => {
 // State 有效期（毫秒）- 10 分钟
 const STATE_VALIDITY_PERIOD = 10 * 60 * 1000;
 
-// 从 URL hash fragment 中获取 token（后端已经完成授权码交换）
-export const getTokenFromHash = () => {
-  const hash = window.location.hash.substring(1); // 去掉 #
-  const params = new URLSearchParams(hash);
+/**
+ * 验证 State 参数（防止 CSRF 攻击和重放攻击）
+ * @param {string} returnedState - 从服务器返回的 state
+ * @returns {boolean} - 验证是否通过
+ */
+export const validateStateParameter = (returnedState) => {
+  if (!returnedState) {
+    console.error('State 参数缺失');
+    return false;
+  }
 
-  const accessToken = params.get('access_token');
-  const idToken = params.get('id_token');
-  const username = params.get('username');
-  const returnedState = params.get('state');
-
-  // 验证 state 参数以防止 CSRF 攻击
   const storedStateJson = sessionStorage.getItem('oidc_state');
-  if (!returnedState || !storedStateJson) {
-    console.error('State 参数缺失，可能存在 CSRF 攻击');
-    sessionStorage.removeItem('oidc_state');
-    throw new Error('State 验证失败，请重新登录');
+  if (!storedStateJson) {
+    console.error('未找到存储的 state，可能存在 CSRF 攻击');
+    return false;
   }
 
   let storedStateData;
   try {
     storedStateData = JSON.parse(storedStateJson);
   } catch (e) {
-    console.error('State 数据格式错误'+e);
+    console.error('State 数据格式错误: ' + e);
     sessionStorage.removeItem('oidc_state');
-    throw new Error('State 验证失败，请重新登录');
+    return false;
   }
 
   // 验证 state 值是否匹配
   if (returnedState !== storedStateData.state) {
     console.error('State 参数不匹配，可能存在 CSRF 攻击');
     sessionStorage.removeItem('oidc_state');
-    throw new Error('State 验证失败，请重新登录');
+    return false;
   }
 
   // 验证时间戳，防止重放攻击
@@ -75,101 +74,44 @@ export const getTokenFromHash = () => {
   if (elapsedTime > STATE_VALIDITY_PERIOD) {
     console.error(`State 已过期（已过 ${Math.floor(elapsedTime / 1000)} 秒），可能存在重放攻击`);
     sessionStorage.removeItem('oidc_state');
-    throw new Error('登录会话已过期，请重新登录');
+    return false;
   }
 
-  if (accessToken) {
-    // 保存 tokens
-    localStorage.setItem('access_token', accessToken);
-    if (idToken) {
-      localStorage.setItem('id_token', idToken);
-    }
-    if (username) {
-      localStorage.setItem('username', username);
-    }
+  // 验证通过，清除存储的 state
+  sessionStorage.removeItem('oidc_state');
+  return true;
+};
 
-    sessionStorage.removeItem('oidc_state');
-
-    // 清除 URL 中的 hash
-    window.history.replaceState(null, '', window.location.pathname);
-
-    return {
-      access_token: accessToken,
-      id_token: idToken,
-      username: username
-    };
-  }
-
+/**
+ * 从 Cookie 中获取值
+ * @param {string} name - Cookie 名称
+ * @returns {string|null} - Cookie 值
+ */
+const getCookie = (name) => {
+  const value = `; ${document.cookie}`;
+  const parts = value.split(`; ${name}=`);
+  if (parts.length === 2) return parts.pop().split(';').shift();
   return null;
 };
 
-// 交换授权码获取 Token
-export const exchangeCodeForToken = async (code) => {
-  try {
-    // 获取存储的 state 数据
-    const storedStateJson = sessionStorage.getItem('oidc_state');
-    let stateValue = null;
-    if (storedStateJson) {
-      try {
-        const storedStateData = JSON.parse(storedStateJson);
-        stateValue = storedStateData.state;
-      } catch (e) {
-        console.warn('Failed to parse stored state, using as plain string');
-        stateValue = storedStateJson;
-      }
-    }
-
-    const response = await fetch('http://localhost:8082/api/auth/token', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ code, state: stateValue })
-    });
-
-    if (!response.ok) {
-      throw new Error(`Token exchange failed: ${response.status}`);
-    }
-
-    const data = await response.json();
-
-    // 保存 tokens
-    if (data.access_token) {
-      localStorage.setItem('access_token', data.access_token);
-    }
-    if (data.id_token) {
-      localStorage.setItem('id_token', data.id_token);
-    }
-    if (data.username) {
-      localStorage.setItem('username', data.username);
-    }
-
-    sessionStorage.removeItem('oidc_state');
-
-    return data;
-  } catch (error) {
-    console.error('Error exchanging code for token:', error);
-    throw error;
-  }
+/**
+ * 获取用户名（从普通 Cookie 中读取）
+ * @returns {string|null} - 用户名
+ */
+export const getUsername = () => {
+  return getCookie('username');
 };
 
-// 获取 Access Token
-export const getAccessToken = () => {
-  return localStorage.getItem('access_token');
-};
-
-// 获取用户信息
+/**
+ * 获取用户信息
+ * Cookie 会自动携带，无需手动添加 Token
+ */
 export const getUserInfo = async () => {
   try {
-    const token = getAccessToken();
-    if (!token) {
-      return null;
-    }
-
     const response = await fetch('http://localhost:8082/api/auth/user', {
       method: 'GET',
+      credentials: 'include',  // 自动携带 Cookie
       headers: {
-        'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json'
       }
     });
@@ -185,15 +127,38 @@ export const getUserInfo = async () => {
   }
 };
 
-// 检查是否已认证
+/**
+ * 检查是否已认证（检查 Cookie 中是否有用户名）
+ * @returns {boolean} - 是否已认证
+ */
 export const isAuthenticated = () => {
-  return !!getAccessToken();
+  // 检查 username Cookie 是否存在
+  return !!getCookie('username');
 };
 
-// 登出
-export const logout = () => {
-  localStorage.removeItem('access_token');
-  localStorage.removeItem('id_token');
-  localStorage.removeItem('username');
-  sessionStorage.removeItem('oidc_state');
+/**
+ * 登出（清除 HttpOnly Cookies）
+ */
+export const logout = async () => {
+  try {
+    // 调用后端登出端点清除 HttpOnly Cookies
+    await fetch('http://localhost:8082/api/auth/logout', {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    });
+
+    // 清除 sessionStorage
+    sessionStorage.removeItem('oidc_state');
+
+    // 重定向到登录页
+    window.location.href = '/';
+  } catch (error) {
+    console.error('Error during logout:', error);
+    // 即使后端调用失败，也清除 sessionStorage 并重定向
+    sessionStorage.removeItem('oidc_state');
+    window.location.href = '/';
+  }
 };

@@ -1,25 +1,48 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { getTokenFromHash } from '../services/oidcService';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { validateStateParameter } from '../services/oidcService';
 
 export default function Callback() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
   useEffect(() => {
     const handleCallback = async () => {
       try {
-        // 从 hash 中读取 token（后端已完成授权码交换）
-        const tokenData = getTokenFromHash();
+        // 从 URL 查询参数获取 state
+        const state = searchParams.get('state');
+        const errorParam = searchParams.get('error');
 
-        if (tokenData && tokenData.access_token) {
-          // 登录成功，重定向到仪表板
-          navigate('/dashboard');
-        } else {
-          setError('未获取到 Token，请重新登录');
+        // 检查是否有错误参数
+        if (errorParam) {
+          setError(`授权失败: ${errorParam}`);
           setLoading(false);
+          return;
         }
+
+        // 验证 state 参数（防止 CSRF 攻击）
+        if (!state) {
+          setError('缺少 state 参数，请重新登录');
+          setLoading(false);
+          return;
+        }
+
+        // 验证 state 参数
+        const isValid = validateStateParameter(state);
+        if (!isValid) {
+          setError('State 验证失败，请重新登录');
+          setLoading(false);
+          return;
+        }
+
+        // Token 已经存储在 HttpOnly Cookie 中，无需前端处理
+        // 清除 URL 中的查询参数
+        window.history.replaceState(null, '', window.location.pathname);
+
+        // 登录成功，重定向到仪表板
+        navigate('/dashboard');
       } catch (err) {
         setError(`错误: ${err.message}`);
         setLoading(false);
@@ -27,7 +50,7 @@ export default function Callback() {
     };
 
     handleCallback();
-  }, [navigate]);
+  }, [navigate, searchParams]);
 
   return (
     <div style={styles.container}>

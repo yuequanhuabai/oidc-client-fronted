@@ -1,26 +1,16 @@
-import { getAccessToken } from './oidcService';
-
 const API_BASE_URL = 'http://localhost:8082/api';
 
-const getHeaders = () => {
-  const token = getAccessToken();
-  const headers = {
-    'Content-Type': 'application/json'
-  };
-
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
-
-  return headers;
-};
-
+/**
+ * API 调用封装
+ * 使用 HttpOnly Cookie 自动携带认证信息
+ */
 export const apiCall = async (endpoint, options = {}) => {
   const url = `${API_BASE_URL}${endpoint}`;
   const config = {
     ...options,
+    credentials: 'include',  // 自动携带 HttpOnly Cookie
     headers: {
-      ...getHeaders(),
+      'Content-Type': 'application/json',
       ...options.headers
     }
   };
@@ -29,7 +19,8 @@ export const apiCall = async (endpoint, options = {}) => {
     const response = await fetch(url, config);
 
     if (response.status === 401) {
-      // Token expired or invalid
+      // Token expired or invalid, redirect to login
+      console.warn('Unauthorized, redirecting to login');
       window.location.href = '/';
       return null;
     }
